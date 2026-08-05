@@ -63,7 +63,9 @@ export default defineConfig({
   server: {
     port: Number.isFinite(devPort) ? devPort : 1420,
     strictPort: true,
-    host: host ? "0.0.0.0" : false,
+    // Web dev always binds all interfaces; Tauri only does when TAURI_DEV_HOST
+    // is set (mobile/network dev), otherwise it stays on localhost.
+    host: host || buildTarget === "web" ? "0.0.0.0" : false,
     headers: {
       "Access-Control-Allow-Origin": "*",
     },
