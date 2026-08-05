@@ -2782,13 +2782,15 @@ impl PerformanceService {
             }
         }
 
-        let start_value = Self::return_total_value(start_point, flow_basis);
+        let start_book_basis = Self::return_book_basis(start_point, flow_basis);
         let value_change = Self::return_total_value(end_point, flow_basis)
             - Self::return_total_value(start_point, flow_basis);
-        let value_return = if start_value <= Decimal::ZERO {
+        let value_return = if start_book_basis <= Decimal::ZERO
+            || !Self::holdings_basis_is_complete(start_point)
+        {
             None
         } else {
-            Some(value_change / start_value)
+            Some(value_change / start_book_basis)
         };
 
         (Some(value_change), value_return)
@@ -3500,7 +3502,7 @@ impl PerformanceService {
                         "Value return unavailable for holdings-only scope.".to_string()
                     })
                 } else {
-                    "Value return unavailable for holdings-only scope because starting total value is zero or negative."
+                    "Value return unavailable for holdings-only scope because the starting book basis is zero, negative, or incomplete."
                         .to_string()
                 })
             } else {
@@ -10091,13 +10093,17 @@ mod tests {
         assert!(result.is_holdings_mode);
     }
 
+    /// HOLDINGS mode bounded periods divide the value change by the book
+    /// basis at the *start* of the period (not the starting market value),
+    /// so the percent stays comparable to the all-time gain-vs-book-basis
+    /// methodology.
     #[test]
-    fn perf_holdings_mode_period_uses_value_change_not_book_basis_delta() {
+    fn perf_holdings_mode_period_uses_value_change_over_start_book_basis() {
         let history = vec![
             valuation(
                 "2026-06-12",
                 dec!(106237.35656319),
-                Decimal::ZERO,
+                dec!(100000),
                 dec!(40927.18483152),
                 dec!(64350.62189612),
             ),
@@ -10120,12 +10126,13 @@ mod tests {
 
         assert_eq!(
             result.returns.value_return.unwrap().round_dp(4),
-            dec!(0.0112)
+            dec!(0.0119)
         );
         assert_eq!(attribution_pnl(&result).round_dp(2), dec!(1186.08));
         assert_eq!(result.attribution.contributions, Decimal::ZERO);
         assert_eq!(result.attribution.residual, Decimal::ZERO);
     }
+
 
     #[test]
     fn perf_holdings_period_partial_basis_suppresses_headline_amount_and_percent() {
@@ -10209,7 +10216,7 @@ mod tests {
             .data_quality
             .not_applicable_reasons
             .iter()
-            .any(|reason| reason.contains("starting total value")));
+            .any(|reason| reason.contains("starting book basis")));
     }
 
     #[test]
