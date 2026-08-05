@@ -2754,14 +2754,8 @@ impl PerformanceService {
 
     /// HOLDINGS-mode period gain and return.
     ///
-    /// HOLDINGS mode doesn't track cash flows at the transaction level, so
-    /// TWR/IRR aren't meaningful — we measure unrealized P&L growth instead.
-    ///
-    /// * `is_all_time` — when `true`, measures gain versus ending book basis
-    ///   (the recorded invested capital). When `false`, measures total value
-    ///   change over starting value. Non-positive denominators make the
-    ///   percentage undefined, so the return is omitted rather than reported as
-    ///   0%.
+    /// Both all-time and bounded periods divide by ending book basis so that
+    /// the same absolute gain always produces the same percentage.
     fn compute_holdings_value_return(
         start_point: &DailyAccountValuation,
         end_point: &DailyAccountValuation,
@@ -2782,15 +2776,16 @@ impl PerformanceService {
             }
         }
 
-        let start_book_basis = Self::return_book_basis(start_point, flow_basis);
+        let end_book_basis = Self::return_book_basis(end_point, flow_basis);
         let value_change = Self::return_total_value(end_point, flow_basis)
             - Self::return_total_value(start_point, flow_basis);
-        let value_return = if start_book_basis <= Decimal::ZERO
-            || !Self::holdings_basis_is_complete(start_point)
+        // Use end book basis so the denominator is consistent with the all-time formula.
+        let value_return = if end_book_basis <= Decimal::ZERO
+            || !Self::holdings_basis_is_complete(end_point)
         {
             None
         } else {
-            Some(value_change / start_book_basis)
+            Some(value_change / end_book_basis)
         };
 
         (Some(value_change), value_return)
@@ -10093,12 +10088,11 @@ mod tests {
         assert!(result.is_holdings_mode);
     }
 
-    /// HOLDINGS mode bounded periods divide the value change by the book
-    /// basis at the *start* of the period (not the starting market value),
-    /// so the percent stays comparable to the all-time gain-vs-book-basis
-    /// methodology.
+    /// HOLDINGS mode bounded periods divide the value change by the *ending*
+    /// book basis, matching the all-time formula so the same gain always
+    /// produces the same percentage.
     #[test]
-    fn perf_holdings_mode_period_uses_value_change_over_start_book_basis() {
+    fn perf_holdings_mode_period_uses_value_change_over_end_book_basis() {
         let history = vec![
             valuation(
                 "2026-06-12",
@@ -10126,7 +10120,7 @@ mod tests {
 
         assert_eq!(
             result.returns.value_return.unwrap().round_dp(4),
-            dec!(0.0119)
+            dec!(0.0090)
         );
         assert_eq!(attribution_pnl(&result).round_dp(2), dec!(1186.08));
         assert_eq!(result.attribution.contributions, Decimal::ZERO);
